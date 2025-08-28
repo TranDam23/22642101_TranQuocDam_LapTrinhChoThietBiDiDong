@@ -1,7 +1,7 @@
 export function runPromiseChain() {
   Promise.resolve(2)
     .then((num) => {
-        console.log("\nBai8:");
+      console.log("\nBai8:");
       const squared = num * num;
       console.log("Kết quả sau bình phương:", squared);
       return squared;

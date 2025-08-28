@@ -116,3 +116,15 @@ const bai10_1 = require("./tuan2/bai10");
     .finally(() => {
     console.log("Done");
 });
+//Bai11:
+const bai11_1 = require("./tuan2/bai11");
+//Bai12:
+const bai12_1 = require("./tuan2/bai12");
+//Bai13:
+const bai13_1 = require("./tuan2/bai13");
+async function main() {
+    await (0, bai11_1.run11)();
+    await (0, bai12_1.run12)();
+    await (0, bai13_1.run13)();
+}
+main();

@@ -153,3 +153,20 @@ randomPromise()
   .finally(() => {
     console.log("Done");
   });
+
+//Bai11:
+import { run11 } from "./tuan2/bai11";
+//Bai12:
+import { run12 } from "./tuan2/bai12";
+
+//Bai13:
+import { run13 } from "./tuan2/bai13";
+
+async function main() {
+
+    await run11();
+    await run12();
+    await run13();
+}
+main();
+
