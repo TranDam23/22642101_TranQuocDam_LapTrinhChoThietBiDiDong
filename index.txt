@@ -1,246 +1,299 @@
-Cài đặt
+categor.tsx
 
-npx create-expo-app shopping-sqlite -t
-cd shopping-sqlite
-npx expo install expo-router react-native-safe-area-context react-native-screens expo-sqlite react-native-toast-message
+import { useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
+import {
+    FlatList,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import { getAllCategories } from "../../src/db/categories.repo";
+import { initDB, seedData } from "../../src/db/db";
+import type { Category } from "../../src/models/types";
 
-chạy: npx expo start
+export default function CategoryScreen() {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [filtered, setFiltered] = useState<Category[]>([]);
+  const [search, setSearch] = useState("");
+  const router = useRouter();
 
-MODELS
+  useEffect(() => {
+    (async () => {
+      await initDB();
+      await seedData();
+      const data = await getAllCategories();
+      setCategories(data);
+      setFiltered(data);
+    })();
+  }, []);
 
-//types.ts
-
-export type Product = {
-  product_id: string;
-  name: string;
-  price: number;
-  stock: number;
-};
-
-export type CartItem = {
-  id: number;
-  product_id: string;
-  name: string;
-  price: number;
-  qty: number;
-  stock: number;
-};
-export type Order = {
-  id: number;
-  note?: string;
-  total: number;
-  created_at: string;
-};
-
-export type OrderItem = {
-  id: number;
-  order_id: number;
-  product_id: string;
-  qty: number;
-  unit_price: number;
-  line_total: number;
-  name?: string; // Để JOIN hiển thị tên sản phẩm
-};
-
-DB
-
-//db.ts
-
-import * as SQLite from "expo-sqlite";
-const db = SQLite.openDatabaseSync("mydatabase.db");
-
-export async function initDB() {
-    await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS products (
-            product_id TEXT PRIMARY KEY NOT NULL,
-            name TEXT NOT NULL,
-            price REAL NOT NULL CHECK (price >= 0),
-            stock INTEGER NOT NULL CHECK (stock >= 0)
-        );
-        CREATE TABLE IF NOT EXISTS cart_items(
-            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-            product_id TEXT NOT NULL,
-            qty INTEGER NOT NULL CHECK (qty >0),
-            UNIQUE(product_id),
-            FOREIGN KEY (product_id) REFERENCES products(product_id)
-        );
-        CREATE TABLE IF NOT EXISTS orders(
-            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-            note TEXT,
-            total REAL NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS order_items(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id INTEGER NOT NULL,
-            product_id INTEGER NOT NULL, 
-            qty INTEGER NOT NULL CHECK (qty >0),
-            unit_price REAL NOT NULL CHECK (unit_price >=0),
-            line_total REAL NOT NULL CHECK (line_total >=0),
-            FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-            FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE RESTRICT
-        );
-    `);
-}
-export async function seedProducts() {
-    const result = await db.getAllAsync<{ count: number }>("SELECT COUNT(*) as count FROM products;");
-    if (result[0].count === 0) {
-        const products = [
-            { id: "p1", name: "Apple", price: 5000, stock: 100 },
-            { id: "p2", name: "Banana", price: 3000, stock: 150 },
-            { id: "p3", name: "Orange", price: 4000, stock: 120 },
-        ];
-        for (const product of products) {
-            await db.runAsync(
-                `INSERT INTO products (product_id, name, price, stock) VALUES (?, ?, ?, ?);`,
-                [product.id, product.name, product.price, product.stock]
-            );
-        }
+  // 📦 Xử lý lọc danh mục theo tên
+  const handleSearch = (text: string) => {
+    setSearch(text);
+    if (text.trim() === "") {
+      setFiltered(categories);
+    } else {
+      const filteredData = categories.filter((item) =>
+        item.name.toLowerCase().includes(text.toLowerCase())
+      );
+      setFiltered(filteredData);
     }
-}
-export default db;
+  };
 
-//product.repo.ts
+  return (
+    <View style={{ flex: 1, backgroundColor: "#f8f9fa", padding: 16 }}>
+      <Text
+        style={{
+          fontSize: 24,
+          fontWeight: "bold",
+          marginBottom: 12,
+          textAlign: "center",
+        }}
+      >
+        Danh mục sản phẩm
+      </Text>
 
-import db from "../db/db";
-import { Product } from "../models/types";
+      {/* 🔍 Ô tìm kiếm */}
+      <TextInput
+        placeholder="Tìm danh mục..."
+        value={search}
+        onChangeText={handleSearch}
+        style={{
+          backgroundColor: "white",
+          borderRadius: 8,
+          padding: 10,
+          marginBottom: 16,
+          borderWidth: 1,
+          borderColor: "#ddd",
+        }}
+      />
 
-export async function getAllProducts(): Promise<Product[]> {
-  return await db.getAllAsync("SELECT * FROM products");
-}
-export async function findProductsByName(name: string): Promise<Product[]> {
-  const query = `
-    SELECT * FROM products
-    WHERE LOWER(name) LIKE LOWER(?)
-  `;
-  const params = [`%${name}%`];
-  return await db.getAllAsync(query, params);
-}
-
-//cart.repo.ts
-import { CartItem } from "../models/types";
-import db from "./db";
-
-// 🛒 Lấy danh sách giỏ hàng
-export const getCart = async (): Promise<CartItem[]> =>
-  db.getAllAsync(`
-    SELECT c.id, c.product_id, p.name, p.price, c.qty, p.stock
-    FROM cart_items c
-    JOIN products p ON c.product_id = p.product_id
-  `);
-
-// ➕ Thêm sản phẩm vào giỏ (kiểm tra tồn kho)
-export async function addToCart(productId: string): Promise<boolean> {
-  const product = await db.getFirstAsync<{ stock: number; name: string }>(
-    "SELECT stock, name FROM products WHERE product_id = ?", [productId]
+      {/* 📋 Danh sách danh mục */}
+      <FlatList
+        data={filtered}
+        keyExtractor={(item) => item.category_id.toString()}
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            onPress={() =>
+              router.push({
+                pathname: "/product",
+                params: {
+                  category_id: item.category_id.toString(),
+                  category_name: item.name,
+                },
+              })
+            }
+          >
+            <View
+              style={{
+                backgroundColor: "white",
+                padding: 14,
+                borderRadius: 10,
+                marginBottom: 10,
+                shadowColor: "#000",
+                shadowOpacity: 0.1,
+                shadowRadius: 4,
+                elevation: 2,
+              }}
+            >
+              <Text style={{ fontWeight: "600", fontSize: 16 }}>
+                {item.name}
+              </Text>
+              <Text style={{ color: "#777", marginTop: 4 }}>
+                Ngày cập nhật: {item.updated_at}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
+      />
+    </View>
   );
-  if (!product) return console.warn("⚠️ Sản phẩm không tồn tại"), false;
-  if (product.stock <= 0) return console.warn(`⚠️ "${product.name}" hết hàng`), false;
-
-  const existing = await db.getFirstAsync<{ qty: number }>(
-    "SELECT qty FROM cart_items WHERE product_id = ?", [productId]
-  );
-
-  if (existing) {
-    if (existing.qty >= product.stock)
-      return console.warn(`⚠️ Vượt quá tồn kho (${product.stock})`), false;
-    await db.runAsync("UPDATE cart_items SET qty = qty + 1 WHERE product_id = ?", [productId]);
-  } else {
-    await db.runAsync("INSERT INTO cart_items(product_id, qty) VALUES (?, 1)", [productId]);
-  }
-  return true;
-}
-
-// 🔄 Cập nhật số lượng trong giỏ (kiểm tra tồn kho)
-export async function updateQty(id: number, qty: number): Promise<boolean> {
-  const cartItem = await db.getFirstAsync<{ product_id: string; stock: number }>(
-    `SELECT c.product_id, p.stock FROM cart_items c
-     JOIN products p ON c.product_id = p.product_id WHERE c.id = ?`, [id]
-  );
-  if (!cartItem) return console.warn("⚠️ Không tìm thấy sản phẩm"), false;
-  if (qty > cartItem.stock) return console.warn(`⚠️ Vượt quá tồn kho (${cartItem.stock})`), false;
-
-  await db.runAsync(
-    qty <= 0 ? "DELETE FROM cart_items WHERE id = ?" : "UPDATE cart_items SET qty = ? WHERE id = ?",
-    qty <= 0 ? [id] : [qty, id]
-  );
-  return true;
-}
-
-//orders.repo.ts
-import { CartItem, Order, OrderItem } from "../models/types";
-import db from "./db";
-
-// 🧾 1. Danh sách đơn hàng
-export const listOrders = async (): Promise<Order[]> =>
-  db.getAllAsync("SELECT id, note, total, created_at FROM orders ORDER BY created_at DESC");
-
-// 🧾 2. Chi tiết đơn hàng + sản phẩm
-export async function getOrderDetail(orderId: number) {
-  const order = await db.getFirstAsync<Order>(
-    "SELECT id, note, total, created_at FROM orders WHERE id = ?", [orderId]
-  );
-  if (!order) return { order: null, items: [] };
-
-  const items = await db.getAllAsync<OrderItem>(
-    `SELECT oi.id, oi.order_id, oi.product_id, p.name, oi.qty, oi.unit_price, oi.line_total
-     FROM order_items oi JOIN products p ON oi.product_id = p.product_id
-     WHERE oi.order_id = ?`, [orderId]
-  );
-  return { order, items };
 }
 
-// 🧾 3. Tạo đơn hàng từ giỏ hàng
-export async function createOrder(items: CartItem[], note?: string) {
-  if (!items.length) throw new Error("❌ Giỏ hàng trống!");
+product.tsx
 
-  const total = items.reduce((t, i) => t + i.price * i.qty, 0);
-  const { lastInsertRowId: orderId } = await db.runAsync(
-    "INSERT INTO orders (note, total) VALUES (?, ?)", [note || "", total]
+// app/product.tsx
+import { useLocalSearchParams } from "expo-router";
+import React, { useEffect, useState } from "react";
+import { Alert, FlatList, Text, TouchableOpacity, View } from "react-native";
+import { initDB, seedData } from "../../src/db/db";
+import {
+    deleteProduct,
+    getAllProducts,
+    getProductsByCategory,
+    updateProduct,
+} from "../../src/db/product.repo";
+import type { Product } from "../../src/models/types";
+
+export default function ProductScreen() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const { category_id, category_name } = useLocalSearchParams();
+
+  // 🟢 Load dữ liệu ban đầu
+  useEffect(() => {
+    (async () => {
+      await initDB();
+      await seedData();
+
+      let list: Product[] = [];
+      if (category_id) {
+        list = await getProductsByCategory(Number(category_id));
+      } else {
+        list = await getAllProducts();
+      }
+      setProducts(list);
+    })();
+  }, [category_id]);
+
+  // 🗑️ Hàm xóa sản phẩm
+  const handleDelete = async (id: number) => {
+    Alert.alert("Xác nhận", "Bạn có chắc muốn xóa sản phẩm này?", [
+      { text: "Hủy", style: "cancel" },
+      {
+        text: "Xóa",
+        style: "destructive",
+        onPress: async () => {
+          await deleteProduct(id);
+          const list = category_id
+            ? await getProductsByCategory(Number(category_id))
+            : await getAllProducts();
+          setProducts(list);
+        },
+      },
+    ]);
+  };
+
+  // ✏️ Hàm chỉnh sửa giá sản phẩm (ví dụ tăng thêm 10.000₫)
+  const handleEdit = async (product: Product) => {
+    const newPrice = product.price + 10000;
+    await updateProduct({ ...product, price: newPrice });
+    const list = category_id
+      ? await getProductsByCategory(Number(category_id))
+      : await getAllProducts();
+    setProducts(list);
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: "#f8f9fa", padding: 16 }}>
+      <Text
+        style={{
+          fontSize: 22,
+          fontWeight: "bold",
+          marginBottom: 12,
+          textAlign: "center",
+        }}
+      >
+        {category_name ? `Sản phẩm: ${category_name}` : "Tất cả sản phẩm"}
+      </Text>
+
+      <FlatList
+        data={products}
+        keyExtractor={(item) => item.product_id.toString()}
+        renderItem={({ item }) => (
+          <View
+            style={{
+              backgroundColor: "white",
+              padding: 12,
+              borderRadius: 10,
+              marginBottom: 10,
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              shadowColor: "#000",
+              shadowOpacity: 0.1,
+              shadowRadius: 4,
+              elevation: 2,
+            }}
+          >
+            {/* Thông tin sản phẩm */}
+            <View>
+              <Text style={{ fontWeight: "600", fontSize: 16 }}>
+                {item.name}
+              </Text>
+              <Text style={{ color: "#1e88e5", marginTop: 4 }}>
+                {item.price.toLocaleString()}₫
+              </Text>
+              {item.category_name && (
+                <Text style={{ color: "#777", marginTop: 2 }}>
+                  {item.category_name}
+                </Text>
+              )}
+            </View>
+
+            {/* Nút sửa / xóa */}
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: "#1976d2",
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  borderRadius: 8,
+                }}
+                onPress={() => handleEdit(item)}
+              >
+                <Text style={{ color: "white", fontWeight: "bold" }}>Sửa</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  backgroundColor: "#e53935",
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  borderRadius: 8,
+                }}
+                onPress={() => handleDelete(item.product_id)}
+              >
+                <Text style={{ color: "white", fontWeight: "bold" }}>Xóa</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      />
+    </View>
   );
-  if (!orderId) throw new Error("❌ Lỗi khi tạo đơn hàng!");
-
-  for (const i of items) {
-    const lineTotal = i.price * i.qty;
-    await db.runAsync(
-      `INSERT INTO order_items(order_id, product_id, qty, unit_price, line_total)
-       VALUES (?, ?, ?, ?, ?)`,
-      [orderId, i.product_id, i.qty, i.price, lineTotal]
-    );
-    await db.runAsync("UPDATE products SET stock = stock - ? WHERE product_id = ?", [i.qty, i.product_id]);
-  }
-
-  await db.runAsync("DELETE FROM cart_items");
-  console.log(`✅ Tạo đơn hàng #${orderId} thành công!`);
-  return orderId;
 }
 
-// 🧾 4. Cập nhật ghi chú / tổng tiền
-export async function updateOrder(id: number, note?: string, total?: number) {
-  const f = [], p: any[] = [];
-  if (note !== undefined) f.push("note = ?"), p.push(note);
-  if (total !== undefined) f.push("total = ?"), p.push(total);
-  if (!f.length) return false;
-  p.push(id);
-  await db.runAsync(`UPDATE orders SET ${f.join(", ")} WHERE id = ?`, p);
-  return true;
+
+layout/tabs
+
+import { Ionicons } from "@expo/vector-icons";
+import { Tabs } from "expo-router";
+
+export default function TabLayout() {
+  return (
+    <Tabs
+      screenOptions={{
+        headerShown: true,
+        tabBarActiveTintColor: "#1e88e5",
+        tabBarInactiveTintColor: "#888",
+      }}
+    >
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "Category",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="list-outline" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="product"
+        options={{
+          title: "Product",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="pricetag-outline" color={color} size={size} />
+          ),
+        }}
+      />
+    </Tabs>
+  );
 }
 
-// 🧾 5. Xóa đơn hàng
-export const deleteOrder = async (id: number) => (
-  await db.runAsync("DELETE FROM orders WHERE id = ?", [id]), true
-);
 
-// 🧾 6. Danh sách sản phẩm trong đơn
-export const listOrderItems = async (orderId: number) =>
-  db.getAllAsync(
-    `SELECT oi.id, oi.order_id, oi.product_id, p.name, oi.qty, oi.unit_price, oi.line_total
-     FROM order_items oi JOIN products p ON oi.product_id = p.product_id
-     WHERE oi.order_id = ?`, [orderId]
-  );
-
-
-//_layout.tsx (app/_layout)
+layout
 
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
@@ -249,7 +302,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
-import Toast from "react-native-toast-message";
+
 import { useColorScheme } from '@/components/useColorScheme';
 
 export {
@@ -293,344 +346,270 @@ function RootLayoutNav() {
   const colorScheme = useColorScheme();
 
   return (
-    <>
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="cart" options={{ title: 'Giỏ hàng' }} />
-        <Stack.Screen name="invoice" options={{ title: 'Hoá đơn' }} />
+      <Stack.Screen name="index" options={{ title: "Trang chính" }} />
+      <Stack.Screen name="category" options={{ title: "Danh mục sản phẩm" }} />
+      <Stack.Screen name="product" options={{ title: "Chi tiết sản phẩm" }} />
       </Stack>
     </ThemeProvider>
-     <Toast />
-    </>
   );
 }
 
 
-//_layout.tsx (app/(tabs)/_layout.tsx)
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Link, Tabs } from 'expo-router';
-import React from 'react';
-import { Pressable } from 'react-native';
+db
 
-import { useClientOnlyValue } from '@/components/useClientOnlyValue';
-import { useColorScheme } from '@/components/useColorScheme';
-import Colors from '@/constants/Colors';
 
-// You can explore the built-in icon families and icons on the web at https://icons.expo.fyi/
-function TabBarIcon(props: {
-  name: React.ComponentProps<typeof FontAwesome>['name'];
-  color: string;
-}) {
-  return <FontAwesome size={28} style={{ marginBottom: -3 }} {...props} />;
+import * as SQLite from "expo-sqlite";
+
+// Mở (hoặc tạo) CSDL
+const db = SQLite.openDatabaseSync("shop.db");
+
+// 🧱 Khởi tạo bảng
+export async function initDB() {
+  await db.execAsync(`
+    -- Bảng danh mục sản phẩm
+    CREATE TABLE IF NOT EXISTS categories (
+      category_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      remote_id TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Bảng sản phẩm
+    CREATE TABLE IF NOT EXISTS products (
+      product_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      price REAL NOT NULL CHECK(price >= 0),
+      description TEXT,
+      image_uri TEXT,
+      category_id INTEGER,
+      FOREIGN KEY (category_id) REFERENCES categories(category_id) ON DELETE SET NULL
+    );
+  `);
 }
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
-  return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        // Disable the static render of the header on web
-        // to prevent a hydration error in React Navigation v6.
-        headerShown: useClientOnlyValue(false, true),
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Tab One',
-          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
-          headerRight: () => (
-            <Link href="/modal" asChild>
-              <Pressable>
-                {({ pressed }) => (
-                  <FontAwesome
-                    name="info-circle"
-                    size={25}
-                    color={Colors[colorScheme ?? 'light'].text}
-                    style={{ marginRight: 15, opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
-              </Pressable>
-            </Link>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="order"
-        options={{
-          title: 'Hoá đơn',
-          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
-        }}
-      />
-    </Tabs>
-  );
-}
-
-//index.tsx (app/(tabs)/index.tsx)
-
-import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
-import {
-  FlatList, Text, TextInput,
-  TouchableOpacity, View
-} from "react-native";
-import Toast from "react-native-toast-message";
-import { addToCart } from "../../src/db/cart.repo";
-import { initDB, seedProducts } from "../../src/db/db";
-import { findProductsByName, getAllProducts } from "../../src/db/product.repo";
-import { Product } from "../../src/models/types";
-
-export default function ProductScreen() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [search, setSearch] = useState("");
-  const router = useRouter();
-
-  useEffect(() => {
-    (async () => {
-      await initDB();
-      await seedProducts();
-      const list = await getAllProducts();
-      setProducts(list);
-    })();
-  }, []);
-
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      const list = search ? await findProductsByName(search) : await getAllProducts();
-      setProducts(list);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [search]);
-
-  const handleAdd = async (p: Product) => {
-    const ok = await addToCart(p.product_id);
-    Toast.show({
-      type: ok ? "success" : "error",
-      text1: ok ? "Đã thêm vào giỏ 🎉" : "Hết hàng",
-      text2: ok ? p.name : "Sản phẩm đã hết hàng hoặc vượt tồn kho",
-      position: "bottom",
-      visibilityTime: 1200
-    });
-  };
-
-  return (
-    <View style={{ flex: 1, padding: 16 }}>
-      {/* Header */}
-      <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
-        <Text style={{ fontSize: 20, fontWeight: "bold" }}>Sản phẩm</Text>
-        <TouchableOpacity onPress={() => router.push("/cart")}>
-          <Text style={{ backgroundColor: "blue", color: "white", padding: 8, borderRadius: 6 }}>Giỏ hàng</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Search */}
-      <TextInput
-        placeholder="Tìm sản phẩm..."
-        value={search}
-        onChangeText={setSearch}
-        style={{
-          borderWidth: 1, borderColor: "#ccc", borderRadius: 6,
-          paddingHorizontal: 10, height: 40, marginBottom: 10
-        }}
-      />
-
-      {/* Product list */}
-      <FlatList
-        data={products}
-        keyExtractor={i => i.product_id}
-        renderItem={({ item }) => (
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              backgroundColor: "white",
-              padding: 10,
-              marginBottom: 8,
-              borderRadius: 8
-            }}
-          >
-            <View>
-              <Text>{item.name}</Text>
-              <Text>{item.price.toLocaleString()}₫</Text>
-              <Text>Tồn kho: {item.stock}</Text>
-            </View>
-            <TouchableOpacity
-              onPress={() => handleAdd(item)}
-              disabled={item.stock === 0}
-              style={{
-                backgroundColor: item.stock === 0 ? "gray" : "green",
-                padding: 8,
-                borderRadius: 6
-              }}
-            >
-              <Text style={{ color: "white" }}>
-                {item.stock === 0 ? "Hết" : "+ Thêm"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      />
-      <Toast />
-    </View>
-  );
-}
-
-//orders.tsx (app/(tabs)/orders.tsx)
-
-import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
-import { FlatList, Text, TouchableOpacity, View } from "react-native";
-import { listOrders } from "../../src/db/orders.repo";
-import { Order } from "../../src/models/types";
-
-export default function OrderScreen() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const router = useRouter();
-
-  useFocusEffect(
-    useCallback(() => {
-      listOrders().then(setOrders);
-    }, [])
+// 🌱 Thêm dữ liệu mẫu ban đầu
+export async function seedData() {
+  // 🧩 1️⃣ Kiểm tra nếu chưa có dữ liệu trong bảng categories
+  const categoryCount = await db.getAllAsync<{ count: number }>(
+    "SELECT COUNT(*) as count FROM categories;"
   );
 
-  return (
-    <View style={{ flex: 1, padding: 16 }}>
-      <Text style={{ fontSize: 22, fontWeight: "700", marginBottom: 12 }}>
-        Danh sách hoá đơn
-      </Text>
+  if (categoryCount[0].count === 0) {
+    const categories = [
+      "Điện thoại",
+      "Máy tính bảng",
+      "Phụ kiện",
+      "Laptop",               // 💻 Danh mục mới
+      "Đồng hồ thông minh",   // ⌚ Danh mục mới
+      "Thiết bị mạng"          // 🌐 Danh mục mở rộng
+    ];
 
-      <FlatList
-        data={orders}
-        keyExtractor={(i) => i.id.toString()}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              backgroundColor: "#fff",
-              padding: 14,
-              borderRadius: 10,
-              marginBottom: 10,
-            }}
-          >
-            <View>
-              <Text style={{ fontSize: 16, fontWeight: "600" }}>
-                Đơn #{item.id}
-              </Text>
-              <Text style={{ fontSize: 13, color: "#555" }}>
-                Ghi chú: {item.note || "Không có"}
-              </Text>
-              <Text style={{ fontSize: 12, color: "#777" }}>
-                {item.created_at}
-              </Text>
-            </View>
-
-            <Text style={{ color: "red", fontWeight: "700" }}>
-              {(item.total ?? 0).toLocaleString()}₫
-            </Text>
-          </TouchableOpacity>
-        )}
-        ListEmptyComponent={
-          <Text style={{ textAlign: "center", marginTop: 40, color: "#666" }}>
-            Chưa có hoá đơn.
-          </Text>
-        }
-      />
-    </View>
-  );
-}
-
-//cart.tsx (app/cart.tsx)
-
-import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
-import { Alert, FlatList, Text, TouchableOpacity, View } from "react-native";
-import { getCart, updateQty } from "../src/db/cart.repo";
-import { createOrder } from "../src/db/orders.repo";
-import { CartItem } from "../src/models/types";
-
-export default function CartScreen() {
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const loadCart = async () => setCart(await getCart());
-  useEffect(() => { loadCart(); }, []);
-  useFocusEffect(useCallback(() => { loadCart(); }, []));
-
-  const total = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
-
-  const changeQty = async (id: number, qty: number, stock: number) => {
-    if (qty > stock) return Alert.alert("Hết hàng");
-    if (qty < 1)
-      return Alert.alert("Xoá sản phẩm", "Bạn muốn xoá khỏi giỏ?", [
-        { text: "Hủy" },
-        { text: "Xoá", onPress: async () => { await updateQty(id, 0); loadCart(); } },
-      ]);
-    await updateQty(id, qty);
-    loadCart();
-  };
-
-  const checkout = async () => {
-    try {
-      const orderId = await createOrder(cart);
-      Alert.alert("Thành công", `Đơn hàng #${orderId} đã được tạo`);
-      loadCart();
-    } catch {
-      Alert.alert("Lỗi", "Không thể tạo đơn hàng");
+    for (const name of categories) {
+      await db.runAsync(
+        `INSERT INTO categories (name, updated_at) VALUES (?, datetime('now'));`,
+        [name]
+      );
     }
-  };
+  }
 
-  return (
-    <View style={{ flex: 1, padding: 20 }}>
-      <Text style={{ fontSize: 20, fontWeight: "bold", marginBottom: 10 }}>🛒 Giỏ hàng của bạn</Text>
+  // 🧩 2️⃣ Kiểm tra nếu chưa có sản phẩm
+  const productCount = await db.getAllAsync<{ count: number }>(
+    "SELECT COUNT(*) as count FROM products;"
+  );
 
-      {cart.length === 0 ? (
-        <Text style={{ textAlign: "center", color: "#666", marginTop: 30 }}>Chưa có sản phẩm nào.</Text>
-      ) : (
-        <FlatList
-          data={cart}
-          keyExtractor={(i) => i.id.toString()}
-          renderItem={({ item }) => (
-            <View style={{ borderWidth: 1, borderColor: "#ccc", borderRadius: 6, padding: 10, marginVertical: 6 }}>
-              <Text style={{ fontWeight: "bold" }}>{item.name}</Text>
-              <Text>{item.price}₫ x {item.qty}</Text>
-              <Text style={{ color: "#666" }}>Tồn kho: {item.stock}</Text>
+  if (productCount[0].count === 0) {
+    // Lấy danh sách category_id
+    const cats = await db.getAllAsync<{ category_id: number }>(
+      "SELECT category_id FROM categories ORDER BY category_id;"
+    );
 
-              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
-                <TouchableOpacity
-                  style={{ backgroundColor: "#007AFF", paddingHorizontal: 10, borderRadius: 4 }}
-                  onPress={() => changeQty(item.id, item.qty - 1, item.stock)}
-                >
-                  <Text style={{ color: "#fff", fontWeight: "bold" }}>−</Text>
-                </TouchableOpacity>
-                <Text style={{ marginHorizontal: 8 }}>{item.qty}</Text>
-                <TouchableOpacity
-                  style={{ backgroundColor: "#007AFF", paddingHorizontal: 10, borderRadius: 4 }}
-                  onPress={() => changeQty(item.id, item.qty + 1, item.stock)}
-                >
-                  <Text style={{ color: "#fff", fontWeight: "bold" }}>＋</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-        />
-      )}
+    const products = [
+      {
+        name: "iPhone 15",
+        price: 25000000,
+        description: "Điện thoại cao cấp của Apple",
+        image_uri: "https://example.com/iphone15.jpg",
+        category_id: cats[0]?.category_id ?? 1,
+      },
+      {
+        name: "iPad Air 5",
+        price: 18000000,
+        description: "Máy tính bảng hiệu năng cao",
+        image_uri: "https://example.com/ipadair.jpg",
+        category_id: cats[1]?.category_id ?? 2,
+      },
+      {
+        name: "Tai nghe Bluetooth",
+        price: 1500000,
+        description: "Phụ kiện âm thanh không dây",
+        image_uri: "https://example.com/headphones.jpg",
+        category_id: cats[2]?.category_id ?? 3,
+      },
+      {
+        name: "MacBook Air M3",
+        price: 32000000,
+        description: "Laptop hiệu năng cao, pin trâu",
+        image_uri: "https://example.com/macbookairm3.jpg",
+        category_id: cats[3]?.category_id ?? 4,
+      },
+      {
+        name: "Apple Watch Series 9",
+        price: 12000000,
+        description: "Đồng hồ thông minh cao cấp của Apple",
+        image_uri: "https://example.com/applewatch9.jpg",
+        category_id: cats[4]?.category_id ?? 5,
+      },
+      {
+        name: "Router Wi-Fi 6 TP-Link",
+        price: 2500000,
+        description: "Thiết bị mạng tốc độ cao chuẩn Wi-Fi 6",
+        image_uri: "https://example.com/tplinkwifi6.jpg",
+        category_id: cats[5]?.category_id ?? 6,
+      },
+    ];
 
-      <View style={{ marginTop: 20, alignItems: "center" }}>
-        <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 10 }}>Tổng cộng: {total}₫</Text>
-        {cart.length > 0 && (
-          <TouchableOpacity
-            style={{ backgroundColor: "#28A745", paddingVertical: 10, paddingHorizontal: 30, borderRadius: 6 }}
-            onPress={checkout}
-          >
-            <Text style={{ color: "#fff", fontWeight: "bold" }}>Thanh toán</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
+    for (const p of products) {
+      await db.runAsync(
+        `INSERT INTO products (name, price, description, image_uri, category_id)
+         VALUES (?, ?, ?, ?, ?);`,
+        [p.name, p.price, p.description, p.image_uri, p.category_id]
+      );
+    }
+  }
+}
+
+export default db;
+
+
+categories.repo.ts
+
+import db from "../db/db";
+import { Category } from "../models/types";
+
+// ➕ Thêm danh mục mới
+export async function addCategory(name: string, remote_id?: string) {
+  const { lastInsertRowId } = await db.runAsync(
+    `INSERT INTO categories (name, remote_id, updated_at)
+     VALUES (?, ?, datetime('now'))`,
+    [name, remote_id || null]
+  );
+  return lastInsertRowId;
+}
+
+// ✏️ Cập nhật danh mục
+export async function updateCategory(
+  id: number,
+  name: string,
+  remote_id?: string
+) {
+  await db.runAsync(
+    `UPDATE categories
+     SET name = ?, remote_id = ?, updated_at = datetime('now')
+     WHERE category_id = ?`,
+    [name, remote_id || null, id]
+  );
+  return true;
+}
+
+// 🗑️ Xóa danh mục
+export async function deleteCategory(id: number) {
+  await db.runAsync(`DELETE FROM categories WHERE category_id = ?`, [id]);
+  return true;
+}
+
+export async function getAllCategories(): Promise<Category[]> {
+  return await db.getAllAsync<Category>(
+    `SELECT * FROM categories ORDER BY name COLLATE NOCASE ASC`
   );
 }
+
+export async function getCategoryById(id: number): Promise<Category | null> {
+  return await db.getFirstAsync<Category>(
+    `SELECT * FROM categories WHERE category_id = ?`, [id]
+  );
+}
+
+
+product.repo.ts
+
+import db from "../db/db";
+import { Product } from "../models/types";
+
+// 🧾 Lấy tất cả sản phẩm
+export async function getAllProducts(): Promise<Product[]> {
+  return await db.getAllAsync<Product>(`
+    SELECT p.*, c.name AS category_name
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.category_id
+    ORDER BY p.product_id DESC
+  `);
+}
+
+// 🔍 Tìm sản phẩm theo id
+export async function getProductById(id: number): Promise<Product | null> {
+  return await db.getFirstAsync<Product>(
+    `SELECT * FROM products WHERE product_id = ?`, [id]
+  );
+}
+
+// 🔍 Tìm sản phẩm theo tên
+export async function findProductsByName(name: string): Promise<Product[]> {
+  const query = `
+    SELECT p.*, c.name AS category_name
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.category_id
+    WHERE LOWER(p.name) LIKE LOWER(?)
+  `;
+  return await db.getAllAsync(query, [`%${name}%`]);
+}
+
+// 🆕 Thêm sản phẩm mới
+export async function insertProduct(product: Product) {
+  await db.runAsync(
+    `INSERT INTO products (name, price, category_id, stock)
+     VALUES (?, ?, ?, ?)`,
+    [product.name, product.price, product.category_id, product.stock ?? 0]
+  );
+}
+
+// 🧭 Lấy sản phẩm theo danh mục
+export async function getProductsByCategory(categoryId: number): Promise<Product[]> {
+  return await db.getAllAsync<Product>(
+    `SELECT * FROM products WHERE category_id = ? ORDER BY product_id DESC`, [categoryId]
+  );
+}
+
+export async function deleteProduct(id: number) {
+  await db.runAsync("DELETE FROM products WHERE product_id = ?", [id]);
+}
+
+export async function updateProduct(product: Product) {
+  await db.runAsync(
+    "UPDATE products SET name = ?, price = ? WHERE product_id = ?",
+    [product.name, product.price, product.product_id]
+  );
+}
+
+
+// models/types.ts
+export type Product = {
+  product_id: number;
+  name: string;
+  price: number;
+  description?: string;
+  image_uri?: string;
+  category_id?: number;
+  category_name?: string;
+};
+
+export type Category = {
+  category_id: number;
+  name: string;
+  remote_id?: string;
+  updated_at?: string;
+};
 
 
 
